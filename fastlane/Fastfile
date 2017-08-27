@@ -1,0 +1,21 @@
+fastlane_version "2.35.1"
+
+default_platform :ios
+
+platform :ios do
+  before_all do
+  end
+
+ lane :bump_podspec_version do |options|
+    targetName = options[:targetName]
+    tagName = options[:tagName]
+    version_bump_podspec(path: "#{targetName}.podspec", version_number: tagName)
+    pod_push(path: "#{targetName}.podspec", repo: "#{repoName}")
+  end
+
+  after_all do |lane|
+  end
+
+  error do |lane, exception|
+  end
+end
