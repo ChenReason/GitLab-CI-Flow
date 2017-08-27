@@ -1,0 +1,126 @@
+stages:
+    - check
+    - update
+
+variables:
+    projects_directory_name: "gitlab_ci_projects"
+    project_url: "xxx"
+    project_name: $CI_PROJECT_NAME
+    commit_ref_name: $CI_COMMIT_REF_NAME
+    type_feature: "feature"
+    type_bugfix: "bugfix"
+    type_develop: "develop"
+
+# 在外部目录 clone 工程项目
+before_script:
+    - cd ~/Desktop
+ 
+    - if [ ! -d "$projects_directory_name" ];then
+    - mkdir $projects_directory_name
+    - fi
+    - cd $projects_directory_name
+
+
+    - if [ ! -d "$project_name" ];then
+    - echo $project_url
+    - git clone $project_url
+    - fi
+    - cd $CI_PROJECT_NAME
+    - git reset --hard
+    - git fetch
+    - git checkout $commit_ref_name
+    - git pull origin $commit_ref_name
+
+check_branch_info:
+    stage: check
+    except: 
+        - develop
+        - release
+        - master
+        - tags
+    script:
+        - branch_name=`cat branch_info`
+        - echo "Current branch is $commit_ref_name"
+        - echo "The branch name in branch_info is $branch_name"
+      
+        - if [ $branch_name != $commit_ref_name ];then
+        - echo "You should modify branch_info's content!"
+        - exit 1
+        - fi
+
+update_develop:
+    stage: update
+    only:
+        - develop
+    script: 
+        - echo "update develop" 
+        - branch_name=`cat branch_info`
+        - if [ $branch_name != "develop" ];then
+        - echo "develop" > branch_info
+        - git commit -am '[skip ci] update branch_info to develop'
+        - git push origin develop
+        - fi
+    
+update_release:
+    stage: update
+    only:
+        - release
+    script:
+        - echo "upadte release"
+        - git checkout release
+        - git pull origin release
+        - branch_name=`cat branch_info`
+        - branch_type=${branch_name%%/*}
+        - current_tag=`git describe --abbrev=0 --tags`
+        - echo "current tag is $current_tag"
+
+        # tag_array[0] -> x, tag_array[1] -> y, tag_array[2] -> z 
+        - tag_array=(${current_tag//./ })
+        
+        - if [ $branch_type == $type_develop ];then
+        - echo "merge develop"
+
+        - tag_array[0]=$[${tag_array[0]}+1]
+        - tag_array[1]=0
+        - tag_array[2]=0
+
+        - else 
+        - echo "merge bugfix"
+        - tag_array[2]=$[${tag_array[2]}+1]
+        - fi
+
+        - tag_name=${tag_array[0]}.${tag_array[1]}.${tag_array[2]}
+        - "fastlane ios bump_podspec_version targetName:$project_name tagName:$tag_name"
+        - git commit -am '[skip ci] bump_podspec_version to $tag_name'
+
+        - if [ $commit_ref_name != "release" ];then
+        - echo "release" > branch_info
+        - git commit -am '[skip ci] update branch_info to $commit_ref_name'
+        - fi
+
+        - git push origin release
+        - git tag -a $tag_name -m '[skip ci] add new tag $tag_name'
+        - git push origin --tags
+
+# 1. 更新 branch_info
+# 2. 同步代码到 develop 中
+# [skip ci] 防止提交代码后再次触发 ci
+update_master:
+    stage: update
+    only: 
+        - master
+    script:
+        - echo "update master"
+        - branch_name=`cat branch_info`
+        - if [ $branch_name != "master" ];then
+        - echo "master" > branch_info
+        - git commit -am '[skip ci] update branch_info to master'
+        - git push origin master
+        - fi
+
+        - git checkout develop
+        - git pull origin develop
+        - git merge master develop
+        - git commit --amend -m 'sync code to develop' 
+        - git push origin develop     
+
